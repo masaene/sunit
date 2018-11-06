@@ -4,29 +4,40 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
+
 #define YYDEBUG 1
-#define SIZ_BUF		(256)
-#define	MAX_BRANCH	(10)
-#define	MAX_DEPTH	(10)
-#define	STACK_MIN	(9)
-#define	STACK_MAX	(0)
+#define SIZ_BUF				(256)
+#define	MAX_CONDITION		(10)
+#define	MAX_BRANCH			(10)
+#define	STACK_MIN			(9)
+#define	STACK_MAX			(0)
+
 extern int yylex(void);
 extern int yyerror(char const *str);
 extern char *yytext;
 
-void push(int a);
+void init_func(char* func_name);
+void push(char* condition);
 int pop(void);
 
-char g_func[SIZ_BUF];
-int g_depth = 0;
-bool g_is_branch = false;
-int g_stack[10];
-int g_sp;
-typedef struct _CONDITION
+typedef struct ST_CONDITION_SET
 {
-	char condition[SIZ_BUF];
-	int free_idx;
-} T_CONDITION;
+	char						condition_str[SIZ_BUF];
+	int 						widx;
+	struct ST_CONDITION_SET*	parent;
+	struct ST_CONDITION_SET*	child[MAX_BRANCH];
+} T_CONDITION_SET;
+
+typedef struct ST_FUNC_SET
+{
+	char				func_name[SIZ_BUF];
+	int 				widx;
+	T_CONDITION_SET*	p_condition[MAX_CONDITION];
+} T_FUNC_SET;
+
+T_FUNC_SET g_func;
+T_CONDITION_SET* gp_current_con_set = NULL;
+
 %}
 %union{
 	int		lval_num;
@@ -54,7 +65,7 @@ program		:	program program
 branch		:	IF L_PAREN expr R_PAREN		{
 												sprintf($$,"if (%s)",$<lval_str>3);
 												printf("%s\n",$$);
-												push(1);
+												push($$);
 											}
 			|	ELSE						{
 												sprintf($$,"else");
@@ -62,20 +73,14 @@ branch		:	IF L_PAREN expr R_PAREN		{
 											}
 			|	ELSE IF L_PAREN expr R_PAREN	{	
 												sprintf($$,"else if");	
-												push(2);
 												}
 			;
 
 l_brace		:	L_BRACE				
 			;
 
-r_brace		:	R_BRACE						{	printf("%d\n",pop());	}
+r_brace		:	R_BRACE					
 			;
-
-/*
-condition	:	expr sp AND sp expr	{	sprintf($$,"%s %s %s",$<lval_str>1,$<lval_str>3,$<lval_str>5);	}
-			;
-			*/
 
 expr		:	L_PAREN NUMBER R_PAREN		{	sprintf($$,"(%d)",$<lval_num>2);	}
 			|	L_PAREN SYMBOL R_PAREN		{	sprintf($$,"(%s)",$<lval_str>2);	}
@@ -111,33 +116,53 @@ extern int yylex(void);
 extern FILE *yyin;
 char buf[SIZ_BUF];
 
-void push(int a)
+void init_func(char* func_name)
 {
-	if (STACK_MAX != g_sp)
+	memset((void*)&g_func, 0x00, sizeof(T_FUNC_SET));
+	strcpy(g_func.func_name,func_name);
+}
+
+void push(char* condition)
+{
+	T_CONDITION_SET* p_con_set;
+
+	p_con_set = (T_CONDITION_SET*)malloc(sizeof(T_CONDITION_SET));
+
+	if (NULL == gp_current_con_set)
 	{
-		g_stack[g_sp] = a;
-		g_sp--;
+		g_func.p_condition[g_func.widx] = p_con_set;
+		g_func.widx++;
 	}
+	else
+	{
+		gp_current_con_set->child[gp_current_con_set->widx] = p_con_set;
+		p_con_set->widx++;
+	}
+
+	gp_current_con_set = p_con_set;
+	strcpy(p_con_set->condition_str,condition);
+
+	return;
 }
 
 int pop(void)
 {
-	int ret;
-	if (0 != g_sp)
+	T_CONDITION_SET* parent_con;
+
+	if (NULL == gp_current_con_set->parent)
 	{
-		ret = g_stack[g_sp];
-		g_sp++;
-		return ret;
+		gp_current_con_set = NULL;
 	}
-	return -1;
+	else
+	{
+		parent_con = gp_current_con_set;
+	}
 }
 
 int main(void)
 {
 
-	g_sp = STACK_MIN;
-	memset((void*)&g_branch_set, 0x00, sizeof(BRANCH_SET) * MAX_DEPTH);
-	memset((void*)g_stack, 0x00, sizeof(g_stack));
+
 
 	FILE* fp;
 	fp = fopen("./test.c", "r");
