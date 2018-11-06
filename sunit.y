@@ -8,83 +8,97 @@
 #define SIZ_BUF		(256)
 #define	MAX_BRANCH	(10)
 #define	MAX_DEPTH	(10)
+#define	STACK_MIN	(9)
+#define	STACK_MAX	(0)
 extern int yylex(void);
 extern int yyerror(char const *str);
 extern char *yytext;
+
+void push(int a);
+int pop(void);
+
 char g_func[SIZ_BUF];
 int g_depth = 0;
 bool g_is_branch = false;
-typedef struct _BRANCH_SET
+int g_stack[10];
+int g_sp;
+typedef struct _CONDITION
 {
-	char condition[MAX_BRANCH][SIZ_BUF];
+	char condition[SIZ_BUF];
 	int free_idx;
-} BRANCH_SET;
-BRANCH_SET g_branch_set[MAX_DEPTH];
+} T_CONDITION;
 %}
 %union{
 	int		lval_num;
 	char	lval_str[256];
 }
 %token		NUMBER SYMBOL
-%token		ADD SUB TYPE RETURN CR EOS COMMA EQ AND OR IF
-%token		SP RITERAL MARU_BRA L_BRA R_BRA NONE
+%token		ADD SUB TYPE RETURN CR EOS COMMA EQ NQ EE AND OR IF ELSE
+%token		SP RITERAL L_BRACE R_BRACE L_PAREN R_PAREN NONE
 %type		<lval_num> NUMBER
-%type		<lval_str> SYMBOL ret expr condition func_def arg sp TYPE
+%type		<lval_str> SYMBOL ret expr func_def var_def arg branch
 %left		ADD SUB
-%start		line
+%start		program
 %%
-line		:	CR
-			|	line line	
-			|	expr line			{	printf("%s\n",$1);	}
-			|	ret line			{	printf("%s\n",$1);	}
-			|	func_def line		{	printf("%s\n",$1);	}
-			|	EOS line
-			|	l_bra line
-			|	r_bra line
-			|	branch line
-			|	variant_def line
+program		:	program program
+			|	EOS CR
+			|	expr CR
+			|	ret CR
+			|	func_def CR
+			|	branch CR
+			|	var_def CR
+			|	r_brace CR
+			|	l_brace CR
 			;
-branch		:	IF sp MARU_BRA condition MARU_BRA	{	g_is_branch = true;
-														g_branch_set[g_depth].free_idx++;
-													}
+
+branch		:	IF L_PAREN expr R_PAREN		{
+												sprintf($$,"if (%s)",$<lval_str>3);
+												printf("%s\n",$$);
+												push(1);
+											}
+			|	ELSE						{
+												sprintf($$,"else");
+												printf("%s\n",$$);
+											}
+			|	ELSE IF L_PAREN expr R_PAREN	{	
+												sprintf($$,"else if");	
+												push(2);
+												}
 			;
-condition	:	expr sp AND sp expr	{	sprintf($$,"%s %s %s",$<lval_str>1,$<lval_str>2,$<lval_str>3);	}
+
+l_brace		:	L_BRACE				
 			;
-l_bra		:	L_BRA	{	if (true == g_is_branch)
-							{
-								g_depth++;
-							}
-						}
+
+r_brace		:	R_BRACE						{	printf("%d\n",pop());	}
 			;
-r_bra		:	R_BRA	{	if (true == g_is_branch)
-							{
-								g_depth--;
-								if (0 == g_depth)
-								{
-									g_is_branch = false;
-								}
-							}	
-						}
+
+/*
+condition	:	expr sp AND sp expr	{	sprintf($$,"%s %s %s",$<lval_str>1,$<lval_str>3,$<lval_str>5);	}
 			;
-sp			:	SP							{	sprintf($$," ");	}
-			|	NONE						{	sprintf($$,"%s",$<lval_str>1);	}
-			;
-expr		:	expr EOS					{	sprintf($$,"%s", $<lval_str>1); }
-			|	MARU_BRA NUMBER MARU_BRA	{	sprintf($$,"%s%d%s",$<lval_str>1,$<lval_num>2,$<lval_str>3);	}
-			|	MARU_BRA SYMBOL MARU_BRA	{	sprintf($$,"%s%s%s",$<lval_str>1,$<lval_str>2,$<lval_str>3);	}
+			*/
+
+expr		:	L_PAREN NUMBER R_PAREN		{	sprintf($$,"(%d)",$<lval_num>2);	}
+			|	L_PAREN SYMBOL R_PAREN		{	sprintf($$,"(%s)",$<lval_str>2);	}
 			|	NUMBER 						{	sprintf($$,"%d",$<lval_num>1);	}
 			|	SYMBOL						{	sprintf($$,"%s",$<lval_str>1);	}
-			|	SYMBOL sp EQ sp expr		{	sprintf($$,"%s%s%s",$<lval_str>1,$<lval_str>2,$<lval_str>3);	}	
+			|	expr EQ expr 				{	sprintf($$,"%s=%s",$<lval_str>1,$<lval_str>3);	}	
+			|	expr NQ expr 				{	sprintf($$,"%s!=%s",$<lval_str>1,$<lval_str>3);	}	
+			|	expr EE expr 				{	sprintf($$,"%s==%s",$<lval_str>1,$<lval_str>3);	}
+			|	expr AND expr				{	sprintf($$,"%s&&%s",$<lval_str>1,$<lval_str>3);	}
+			|	expr EOS					{	sprintf($$,"%s",$<lval_str>1);	}	
 			;
+
 ret			:	RETURN SP expr EOS			{	sprintf($$,"%s %s",$<lval_str>1,$<lval_str>3);	}
 			;
-variant_def	:	TYPE SP SYMBOL EOS
+
+var_def		:	TYPE SP SYMBOL EOS			{	sprintf($$,"%s %s;",$<lval_str>1,$<lval_str>3);	}
 			;
-func_def	:	TYPE SP SYMBOL MARU_BRA arg MARU_BRA	{	sprintf($$,"%s %s(%s)",$<lval_str>1,$<lval_str>2,$<lval_str>3);	printf("%s\n",$$);}
+
+func_def	:	TYPE SP SYMBOL L_PAREN arg R_PAREN	{	sprintf($$,"%s %s(%s)",$<lval_str>1,$<lval_str>3,$<lval_str>5);	printf("%s\n",$$);}
 			;
-arg			:	TYPE SP SYMBOL				{	sprintf($$,"%s %s",$<lval_str>1,$<lval_str>2);	}
-			|	arg sp COMMA arg			{	sprintf($$,"%s,%s",$<lval_str>1,$<lval_str>4);	}
-			|	sp							{	sprintf($$,"%s",$<lval_str>1);	}
+
+arg			:	TYPE SP SYMBOL				{	sprintf($$,"%s %s",$<lval_str>1,$<lval_str>3);	}
+			|	arg COMMA arg				{	sprintf($$,"%s,%s",$<lval_str>1,$<lval_str>3);	}
 			;
 %%
 int yyerror(char const *str)
@@ -96,10 +110,34 @@ extern int yyparse(void);
 extern int yylex(void);
 extern FILE *yyin;
 char buf[SIZ_BUF];
+
+void push(int a)
+{
+	if (STACK_MAX != g_sp)
+	{
+		g_stack[g_sp] = a;
+		g_sp--;
+	}
+}
+
+int pop(void)
+{
+	int ret;
+	if (0 != g_sp)
+	{
+		ret = g_stack[g_sp];
+		g_sp++;
+		return ret;
+	}
+	return -1;
+}
+
 int main(void)
 {
 
+	g_sp = STACK_MIN;
 	memset((void*)&g_branch_set, 0x00, sizeof(BRANCH_SET) * MAX_DEPTH);
+	memset((void*)g_stack, 0x00, sizeof(g_stack));
 
 	FILE* fp;
 	fp = fopen("./test.c", "r");
