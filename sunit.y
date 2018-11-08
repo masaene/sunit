@@ -22,30 +22,32 @@ extern int yylex(void);
 extern int yyerror(char const *str);
 extern char *yytext;
 
-char* trim_indent(char* p_str);
-void print_func(void);
-void init_func(char* func_name);
-void push(char* condition);
-int pop(void);
-
 typedef struct ST_CONDITION_SET
 {
 	char						condition_str[SIZ_BUF];
 	int 						widx;
 	struct ST_CONDITION_SET*	parent;
-	struct ST_CONDITION_SET*	child[MAX_BRANCH];
+	struct ST_CONDITION_SET*	child[MAX_CONDITION];
 } T_CONDITION_SET;
 
 typedef struct ST_FUNC_SET
 {
 	char				func_name[SIZ_BUF];
 	int 				widx;
-	T_CONDITION_SET*	p_condition[MAX_CONDITION];
+	T_CONDITION_SET*	p_condition;
 } T_FUNC_SET;
 
 T_FUNC_SET g_func;
 T_CONDITION_SET* gp_current_con_set = NULL;
 int g_brace_depth = 0;
+
+char* trim_indent(char* p_str);
+void print_func(void);
+void re_print_func(T_CONDITION_SET* p_con_set);
+void init_func(char* func_name);
+void push(char* condition);
+int pop(void);
+
 
 %}
 %union{
@@ -56,15 +58,16 @@ int g_brace_depth = 0;
 %token		ADD SUB TYPE RETURN CR EOS COMMA EQ NQ EE AND OR IF ELSE 
 %token		SP RITERAL L_BRACE R_BRACE L_PAREN R_PAREN NONE
 %type		<lval_num> NUMBER
-%type		<lval_str> SYMBOL ret expr func_def var_def arg branch operator l_brace r_brace l_paren r_paren
+%type		<lval_str> SYMBOL ret expr func_def var_def arg branch operator primary sp
+%type		<lval_str> l_brace r_brace l_paren r_paren
 %left		ADD SUB
 %start		program
 %%
 program		:	program program
-			|	CR
 			|	EOS CR
-			|	SP CR
+			|	sp CR
 			|	ret CR
+			|	primary CR
 			|	func_def CR
 			|	branch CR
 			|	var_def CR
@@ -72,28 +75,28 @@ program		:	program program
 			|	l_brace CR
 			;
 
-branch		:	IF L_PAREN expr R_PAREN				{
-														sprintf($$,"if (%s)",$<lval_str>3);
+branch		:	sp IF sp L_PAREN expr R_PAREN				{
+														sprintf($$,"if (%s)",$<lval_str>5);
 														push($$);
 													}
-			|	ELSE								{
+			|	sp ELSE sp								{
 														sprintf($$,"else");
 														push(NULL);
 													}
-			|	ELSE IF L_PAREN expr R_PAREN		{	
+			|	sp ELSE sp IF L_PAREN expr R_PAREN		{	
 														sprintf($$,"else if");	
-														push($<lval_str>4);
+														push($<lval_str>6);
 													}
 			;
 
-l_brace		:	L_BRACE								{
-														sprintf($$,"%s",$<lval_str>1);
+l_brace		:	sp L_BRACE sp								{
+														sprintf($$,"%s",$<lval_str>2);
 														g_brace_depth++;
 													}
 			;
 
-r_brace		:	R_BRACE								{
-														sprintf($$,"%s",$<lval_str>1);
+r_brace		:	sp R_BRACE sp								{
+														sprintf($$,"%s",$<lval_str>2);
 														g_brace_depth--;
 														if (0 == g_brace_depth)
 														{
@@ -110,36 +113,39 @@ r_paren		:	R_PAREN								{	sprintf($$,"%s",$<lval_str>1);
 													}
 			;
 
-operator	:	EQ									{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
-			|	NQ									{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
-			|	EE									{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
-			|	AND									{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
-			|	OR									{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
+operator	:	NQ												{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
+			|	EE												{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
+			|	AND												{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
+			|	OR												{	sprintf($$,"%s",trim_indent($<lval_str>1));	}
 			;
 
-expr		:	NUMBER 								{	sprintf($$,"%d",$<lval_num>1);	}
-			|	SYMBOL								{	sprintf($$,"%s",$<lval_str>1);	}
-			|	expr operator expr 					{	
-														sprintf($$,"%s%s%s",$<lval_str>1,$<lval_str>2,$<lval_str>3);	
-													}
-			|	expr EOS							{	sprintf($$,"%s",$<lval_str>1);	}	
+primary		:	sp l_paren expr r_paren sp 	EOS {	sprintf($$,"%s",$<lval_str>3);	}
+			|	expr EOS					{	sprintf($$,"%s",$<lval_str>1);	}
 			;
 
-ret			:	RETURN expr EOS						{	sprintf($$,"%s;",$<lval_str>2);	}
-			|	RETURN l_paren expr r_paren EOS		{	sprintf($$,"%s;",$<lval_str>3);	}
+expr		:	sp primary sp operator sp primary sp {	sprintf($$,"%s%s%s",$<lval_str>2,$<lval_str>4,$<lval_str>6);	}
+			|	sp SYMBOL sp EQ sp expr sp {	sprintf($$,"%s%s%s",$<lval_str>2,$<lval_str>4,$<lval_str>6);	}
+			|	sp NUMBER sp									{	sprintf($$,"%d",$<lval_num>2);	}
+			|	sp SYMBOL sp									{	sprintf($$,"%s",$<lval_str>2);	}
 			;
 
-var_def		:	TYPE SYMBOL EOS						{	sprintf($$,"%s%s;",$<lval_str>1,$<lval_str>2);	}
+ret			:	sp RETURN primary EOS 								{	sprintf($$,"%s%s",$<lval_str>2,$<lval_str>3);	}
 			;
 
-func_def	:	TYPE SYMBOL l_paren arg r_paren		{
-														sprintf($$,"%s%s(%s)",$<lval_str>1,$<lval_str>2,$<lval_str>4);
-														init_func($<lval_str>2);
-													}
+sp			:													{	sprintf($$," ");	}
+			|	SP												{	sprintf($$,"%s",$<lval_str>1);	}
+			;
+var_def		:	sp TYPE sp SYMBOL sp EOS 								{	sprintf($$,"%s%s",$<lval_str>2,$<lval_str>4);	}
 			;
 
-arg			:	TYPE SYMBOL							{	sprintf($$,"%s%s",$<lval_str>1,$<lval_str>2);	}
-			|	arg COMMA arg						{	sprintf($$,"%s,%s",$<lval_str>1,$<lval_str>3);	}
+func_def	:	sp TYPE sp SYMBOL sp l_paren arg r_paren		{
+																	sprintf($$,"%s%s(%s)",$<lval_str>2,$<lval_str>4,$<lval_str>7);
+																	init_func($<lval_str>4);
+																}
+			;
+
+arg			:	sp TYPE sp SYMBOL sp							{	sprintf($$,"%s%s",$<lval_str>2,$<lval_str>4);	}
+			|	arg COMMA arg 									{	sprintf($$,"%s,%s",$<lval_str>1,$<lval_str>3);	}
 			;
 %%
 int yyerror(char const *str)
@@ -171,10 +177,28 @@ char* trim_indent(char* p_str)
 
 void print_func(void)
 {
+	T_CONDITION_SET* p_con_set;
 	printf("----------\n");
 	printf("%s\n",g_func.func_name);
 
+	p_con_set = g_func.p_condition;
+	re_print_func(p_con_set);
 	printf("----------\n");
+}
+
+void re_print_func(T_CONDITION_SET* p_con_set)
+{
+	for (int con_idx=0; con_idx<p_con_set->widx; con_idx++)
+	{
+		if (NULL != p_con_set->child[con_idx])
+		{
+			re_print_func(p_con_set->child[con_idx]);
+		}
+		else
+		{
+			printf("%s\n",p_con_set->condition_str);
+		}
+	}
 }
 
 void init_func(char* p_func_name)
@@ -189,15 +213,18 @@ void push(char* p_condition)
 	T_CONDITION_SET* p_con_set;
 
 	p_con_set = (T_CONDITION_SET*)malloc(sizeof(T_CONDITION_SET));
+	memset((void*)p_con_set, 0x00, sizeof(T_CONDITION_SET));
 
 	if (NULL == gp_current_con_set)
 	{
-		g_func.p_condition[g_func.widx] = p_con_set;
-		g_func.widx++;
+		g_func.p_condition = p_con_set;
+		p_con_set->widx++;
 	}
 	else
 	{
 		gp_current_con_set->child[gp_current_con_set->widx] = p_con_set;
+		p_con_set->parent = gp_current_con_set;
+		p_con_set->parent->widx++;
 		p_con_set->widx++;
 	}
 
@@ -205,7 +232,7 @@ void push(char* p_condition)
 	if (NULL == p_condition)
 	{
 		strcpy(p_con_set->condition_str,"!");
-		strcat(p_con_set->condition_str,g_func.p_condition[0]->condition_str);
+		strcat(p_con_set->condition_str,p_con_set->parent->condition_str);
 	}
 	else
 	{

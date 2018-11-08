@@ -10,7 +10,7 @@ all:$(TARGET)
 .PHONY:all clean $(FLEX_ORG) $(BISON_ORG)
 
 $(TARGET):$(FLEX_C) $(BISON_C)
-	gcc $^ -lfl -ly -o $@
+	gcc -g $^ -lfl -ly -o $@
 
 $(FLEX_C):$(FLEX_ORG)
 	flex -o $@ $^
